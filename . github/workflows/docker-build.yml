@@ -1,32 +1,65 @@
-name: Build & Publish Docker Image
+name: Build and Deploy Docker Image
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+
+env:
+  IMAGE_NAME: boomchain-token-claimer
 
 jobs:
-  build-and-push:
+  build:
     runs-on: ubuntu-latest
-    environment: production
 
     steps:
-      - name: Checkout Codebase
+      - name: Checkout code
         uses: actions/checkout@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Login to Docker Hub
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v2
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and Push Docker Image
+      - name: Cache Docker layers
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Build and push Docker image
         uses: docker/build-push-action@v4
         with:
           context: .
           push: true
-          tags: boomchainlab/boomchain-token-claimer:latest
+          tags: ghcr.io/${{ github.repository_owner }}/boomchain-token-claimer:latest
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      # Optional: Deploy step (customize according to your infra)
+      # - name: Deploy to server
+      #   uses: appleboy/ssh-action@v0.1.7
+      #   with:
+      #     host: ${{ secrets.SERVER_HOST }}
+      #     username: ${{ secrets.SERVER_USER }}
+      #     key: ${{ secrets.SERVER_SSH_KEY }}
+      #     script: |
+      #       docker pull ghcr.io/${{ github.repository_owner }}/boomchain-token-claimer:latest
+      #       docker stop boomchain-token-claimer || true
+      #       docker rm boomchain-token-claimer || true
+      #       docker run -d --rm -p 8080:8080 --env-file /path/to/.env --name boomchain-token-claimer ghcr.io/${{ github.repository_owner }}/boomchain-token-claimer:latest
